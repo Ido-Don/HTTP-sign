@@ -56,19 +56,20 @@ class HTTPSignatureHandler:
         return sig_base, sig_params_node, sig_elements
 
 
+def _parse_covered_component_ids(covered_component_ids):
+    covered_component_nodes = []
+    for component_id in covered_component_ids:
+        component_name_node = http_sfv.Item()
+        if component_id.startswith('"'):
+            component_name_node.parse(component_id.encode())
+        else:
+            component_name_node.value = component_id
+        covered_component_nodes.append(component_name_node)
+    return covered_component_nodes
+
+
 class HTTPMessageSigner(HTTPSignatureHandler):
     DEFAULT_SIGNATURE_LABEL = "pyhms"
-
-    def _parse_covered_component_ids(self, covered_component_ids):
-        covered_component_nodes = []
-        for component_id in covered_component_ids:
-            component_name_node = http_sfv.Item()
-            if component_id.startswith('"'):
-                component_name_node.parse(component_id.encode())
-            else:
-                component_name_node.value = component_id
-            covered_component_nodes.append(component_name_node)
-        return covered_component_nodes
 
     def sign(
         self,
@@ -95,7 +96,7 @@ class HTTPMessageSigner(HTTPSignatureHandler):
             signature_params["nonce"] = nonce
         if include_alg:
             signature_params["alg"] = self.signature_algorithm.algorithm_id
-        covered_component_nodes = self._parse_covered_component_ids(covered_component_ids)
+        covered_component_nodes = _parse_covered_component_ids(covered_component_ids)
         sig_base, sig_params_node, _ = self._build_signature_base(
             message, covered_component_ids=covered_component_nodes, signature_params=signature_params
         )
@@ -110,53 +111,56 @@ class HTTPMessageSigner(HTTPSignatureHandler):
         message.headers["Signature"] = str(sig_node)
 
 
+def _parse_dict_header(header_name, headers):
+    if header_name not in headers:
+        raise InvalidSignature(f'Expected "{header_name}" header field to be present')
+    try:
+        dict_header_node = http_sfv.Dictionary()
+        dict_header_node.parse(headers[header_name].encode())
+    except Exception as e:
+        raise InvalidSignature(f'Malformed structured header field "{header_name}"') from e
+    return dict_header_node
+
+
+def _parse_integer_timestamp(ts, field_name):
+    try:
+        ts = int(ts)
+        dt = datetime.datetime.fromtimestamp(ts)
+    except Exception as e:
+        raise InvalidSignature(f'Malformed "{field_name}" parameter: {e}') from e
+    return dt
+
+
+def validate_created_and_expires(sig_input, max_age=None):
+    now = datetime.datetime.now()
+    min_time = now - HTTPMessageVerifier.max_clock_skew
+    max_time = now + HTTPMessageVerifier.max_clock_skew
+    if "created" in sig_input.params:
+        if _parse_integer_timestamp(sig_input.params["created"], field_name="created") > max_time:
+            raise InvalidSignature('Signature "created" parameter is set to a time in the future')
+    elif HTTPMessageVerifier.require_created:
+        raise InvalidSignature('Signature is missing a required "created" parameter')
+    if "expires" in sig_input.params:
+        if _parse_integer_timestamp(sig_input.params["expires"], field_name="expires") < min_time:
+            raise InvalidSignature('Signature "expires" parameter is set to a time in the past')
+    if max_age is not None:
+        if _parse_integer_timestamp(sig_input.params["created"], field_name="created") + max_age < min_time:
+            raise InvalidSignature(f"Signature age exceeds maximum allowable age {max_age}")
+
+
 class HTTPMessageVerifier(HTTPSignatureHandler):
     max_clock_skew: datetime.timedelta = datetime.timedelta(seconds=5)
     require_created: bool = True
 
-    def _parse_dict_header(self, header_name, headers):
-        if header_name not in headers:
-            raise InvalidSignature(f'Expected "{header_name}" header field to be present')
-        try:
-            dict_header_node = http_sfv.Dictionary()
-            dict_header_node.parse(headers[header_name].encode())
-        except Exception as e:
-            raise InvalidSignature(f'Malformed structured header field "{header_name}"') from e
-        return dict_header_node
-
-    def _parse_integer_timestamp(self, ts, field_name):
-        try:
-            ts = int(ts)
-            dt = datetime.datetime.fromtimestamp(ts)
-        except Exception as e:
-            raise InvalidSignature(f'Malformed "{field_name}" parameter: {e}') from e
-        return dt
-
-    def validate_created_and_expires(self, sig_input, max_age=None):
-        now = datetime.datetime.now()
-        min_time = now - self.max_clock_skew
-        max_time = now + self.max_clock_skew
-        if "created" in sig_input.params:
-            if self._parse_integer_timestamp(sig_input.params["created"], field_name="created") > max_time:
-                raise InvalidSignature('Signature "created" parameter is set to a time in the future')
-        elif self.require_created:
-            raise InvalidSignature('Signature is missing a required "created" parameter')
-        if "expires" in sig_input.params:
-            if self._parse_integer_timestamp(sig_input.params["expires"], field_name="expires") < min_time:
-                raise InvalidSignature('Signature "expires" parameter is set to a time in the past')
-        if max_age is not None:
-            if self._parse_integer_timestamp(sig_input.params["created"], field_name="created") + max_age < min_time:
-                raise InvalidSignature(f"Signature age exceeds maximum allowable age {max_age}")
-
     def verify(self, message, *, max_age: datetime.timedelta = datetime.timedelta(days=1)) -> List[VerifyResult]:
-        sig_inputs = self._parse_dict_header("Signature-Input", message.headers)
+        sig_inputs = _parse_dict_header("Signature-Input", message.headers)
         if len(sig_inputs) != 1:
             # TODO: validate all behaviors with multiple signatures
             raise InvalidSignature("Multiple signatures are not supported")
-        signature = self._parse_dict_header("Signature", message.headers)
+        signature = _parse_dict_header("Signature", message.headers)
         verify_results = []
         for label, sig_input in sig_inputs.items():
-            self.validate_created_and_expires(sig_input, max_age=max_age)
+            validate_created_and_expires(sig_input, max_age=max_age)
             if label not in signature:
                 raise InvalidSignature("Signature-Input contains a label not listed in Signature")
             if "alg" in sig_input.params:

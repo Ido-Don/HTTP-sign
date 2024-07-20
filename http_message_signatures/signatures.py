@@ -82,12 +82,12 @@ def get_hash(algorithm: str, data: bytes) -> bytes:
     raise NotImplementedError(f"sorry {algorithm} is not implemented")
 
 
-def sign_request(
+def sign_request_headers(
         request: PreparedRequest,
-        headers: List[Tuple[str, Dict[str, Any]]],
+        headers: HeaderList,
         algorithm: HTTPSignatureAlgorithm,
-        signature_params: Dict[str, Any] = None,
-        signature_label: str = "signature1"
+        signature_params: Optional[Dict[str, Any]] = None,
+        signature_label: str = "signature"
 ) -> PreparedRequest:
     if signature_params is None:
         signature_params = DEFAULT_SIGNATURE_PARAMETERS
@@ -95,13 +95,14 @@ def sign_request(
     new_request = request.copy()
     if SIGNATURE_INPUT_HEADER_NAME in new_request.headers:
         raise NotImplementedError("multiple signature is not implanted.")
-    signature_input = {
+    
+    signature_input_header_value = {
         signature_label: (
             headers,
             signature_params
         )
     }
-    new_request.headers[SIGNATURE_INPUT_HEADER_NAME] = http_sf.ser_dictionary(signature_input)
+    new_request.headers[SIGNATURE_INPUT_HEADER_NAME] = http_sf.ser_dictionary(signature_input_header_value)
     signature_base = get_request_signature_base(new_request, headers)
     bytes_signature_base = signature_base.encode(STRING_ENCODING)
     signature = algorithm.sign(bytes_signature_base)

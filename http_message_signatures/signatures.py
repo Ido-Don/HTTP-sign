@@ -60,11 +60,16 @@ def add_body_digest_to_request(request: PreparedRequest, algorithm: str):
     if DIGEST_HEADER_NAME in request.headers:
         raise NotImplementedError("multiple signature is not implanted.")
     new_request = request.copy()
-    body_byte_string = request.body.encode(STRING_ENCODING)
-    body_digest = get_hash(algorithm, body_byte_string)
-    body_digest_header_value = {
-        algorithm: body_digest.decode(STRING_ENCODING)
-    }
+    body = request.body
+    if isinstance(body_digest, bytes):
+        body_bytes = bytes(body)
+    elif isinstance(body, str):
+        body_bytes = body.encode(STRING_ENCODING)
+    else:
+        body_bytes = b''
+
+    body_digest = get_hash(algorithm, body_bytes).decode(STRING_ENCODING)
+    body_digest_header_value = {algorithm: body_digest}
     new_request.headers[DIGEST_HEADER_NAME] = http_sf.ser_dictionary(body_digest_header_value)
     return new_request
 

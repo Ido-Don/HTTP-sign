@@ -19,7 +19,8 @@ DEFAULT_SIGNATURE_PARAMETERS = {}
 STRING_ENCODING = 'UTF-8'
 SIGNATURE_HEADER_NAME = "Signature"
 DIGEST_HEADER_NAME = "Content-digest"
-signature_input_type = Dict[str, Tuple[List[Tuple[str, Dict[str, Any]]], Dict[str, Any]]]
+HeaderList = List[Tuple[str, Dict[str, Any]]]
+SignatureInput = Dict[str, Tuple[HeaderList], Dict[str, Any]]
 
 derived_component_names = {
     "@method",
@@ -42,7 +43,7 @@ def get_derived_header_from_request(request: PreparedRequest, header_name: str, 
     raise NotImplementedError(f"header {header_name} is not supported yet")
 
 
-def get_request_signature_base(request: PreparedRequest, headers_to_go_over: List[Tuple[str, Dict[str, Any]]]):
+def get_request_signature_base(request: PreparedRequest, headers_to_go_over: HeaderList):
     signature_base = ""
     for header_name, header_parameters in headers_to_go_over:
         if header_name in derived_component_names:
@@ -56,7 +57,7 @@ def get_request_signature_base(request: PreparedRequest, headers_to_go_over: Lis
     return signature_base
 
 
-def add_body_digest_to_request(request: PreparedRequest, algorithm: str):
+def add_body_digest_to_request(request: PreparedRequest, algorithm: str) -> PreparedRequest:
     if DIGEST_HEADER_NAME in request.headers:
         raise NotImplementedError("multiple signature is not implanted.")
     new_request = request.copy()

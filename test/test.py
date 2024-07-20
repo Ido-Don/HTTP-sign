@@ -41,7 +41,7 @@ class MyHTTPSignatureKeyResolver(HTTPSignatureKeyResolver):
     def resolve_public_key(self, key_id: str):
         if key_id == "test-shared-secret":
             return test_shared_secret
-        if key_id in self.known_pem_keys:
+        if key_id in MyHTTPSignatureKeyResolver.known_pem_keys:
             with open(f"test/{key_id}.pem", "rb") as fh:
                 return load_pem_public_key(fh.read())
 

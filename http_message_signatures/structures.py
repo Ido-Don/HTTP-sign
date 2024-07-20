@@ -1,10 +1,8 @@
-import dataclasses
 from collections import OrderedDict, namedtuple
 from collections.abc import Mapping, MutableMapping
 from typing import List, Any, Dict
 
-import requests
-from requests import Request, PreparedRequest
+from requests import PreparedRequest
 
 VerifyResult = namedtuple("VerifyResult", "label algorithm covered_components parameters body")
 DERIVED_HTTP_ATTRIBUTES = [

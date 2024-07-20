@@ -1,25 +1,25 @@
 import urllib.parse
 
 import http_sfv
-from requests import PreparedRequest
 
 from .exceptions import HTTPMessageSignaturesException
 from .structures import CaseInsensitiveDict
 
+derived_component_names = {
+    "@method",
+    "@target-uri",
+    "@authority",
+    "@scheme",
+    "@request-target",
+    "@path",
+    "@query",
+    "@query-params",
+    "@status",
+    "@request-response",
+}
+
 
 class HTTPSignatureComponentResolver:
-    derived_component_names = {
-        "@method",
-        "@target-uri",
-        "@authority",
-        "@scheme",
-        "@request-target",
-        "@path",
-        "@query",
-        "@query-params",
-        "@status",
-        "@request-response",
-    }
 
     # TODO: describe interface
     def __init__(self, message):
@@ -33,7 +33,7 @@ class HTTPSignatureComponentResolver:
     def resolve(self, component_node: http_sfv.Item):
         component_id = str(component_node.value)
         if component_id.startswith("@"):  # derived component
-            if component_id not in self.derived_component_names:
+            if component_id not in derived_component_names:
                 raise HTTPMessageSignaturesException(f"Unknown covered derived component name {component_id}")
             resolver = getattr(self, "get_" + component_id[1:].replace("-", "_"))
             return resolver(**component_node.params)

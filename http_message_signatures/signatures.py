@@ -36,7 +36,7 @@ derived_component_names = {
 }
 
 
-def get_derived_header_from_request(request: PreparedRequest, header_name: str, header_parameters: Dict):
+def get_derived_header_from_request(request: PreparedRequest, header_name: str, header_parameters: Dict[str, Any]):
     assert header_name in derived_component_names
     if header_name == "@method":
         return request.method

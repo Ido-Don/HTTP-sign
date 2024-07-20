@@ -1,3 +1,6 @@
 {
-  "cSpell.words": ["PKCS", "SECP"]
+  "cSpell.words": ["PKCS", "SECP"],
+  "python.testing.pytestArgs": ["test"],
+  "python.testing.unittestEnabled": false,
+  "python.testing.pytestEnabled": true
 }

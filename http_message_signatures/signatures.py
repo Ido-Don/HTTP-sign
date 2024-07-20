@@ -20,7 +20,7 @@ STRING_ENCODING = 'UTF-8'
 SIGNATURE_HEADER_NAME = "Signature"
 DIGEST_HEADER_NAME = "Content-digest"
 HeaderList = List[Tuple[str, Dict[str, Any]]]
-SignatureInput = Dict[str, Tuple[HeaderList], Dict[str, Any]]
+SignatureInput = Dict[str, Tuple[HeaderList, Dict[str, Any]]]
 
 derived_component_names = {
     "@method",
@@ -82,6 +82,15 @@ def get_hash(algorithm: str, data: bytes) -> bytes:
     raise NotImplementedError(f"sorry {algorithm} is not implemented")
 
 
+def get_unverified_signature_parameters(request: PreparedRequest, signature_label: str = "signature"):
+    signature_input_header_value = request.headers[SIGNATURE_INPUT_HEADER_NAME]
+    signature_input_header_value_bytes = signature_input_header_value.encode(STRING_ENCODING)
+    signature_input: SignatureInput = http_sf.parse(signature_input_header_value_bytes, name="dictionary")
+    signature_params = signature_input[signature_label][1]
+    return signature_params
+
+
+
 def sign_request_headers(
         request: PreparedRequest,
         headers: HeaderList,
@@ -130,7 +139,7 @@ class HTTPSignatureHandler:
         self.component_resolver_class = component_resolver_class
 
     def _build_signature_base(
-            self, message, *, covered_component_ids: List[Any], signature_params: Dict[str, str]
+            self, message, covered_component_ids: List[Any], signature_params: Dict[str, str]
     ) -> Tuple:
         assert "@signature-params" not in covered_component_ids
         sig_elements = collections.OrderedDict()

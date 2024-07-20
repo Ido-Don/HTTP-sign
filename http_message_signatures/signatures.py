@@ -60,16 +60,20 @@ def add_body_digest_to_request(request: PreparedRequest, algorithm: str):
     if DIGEST_HEADER_NAME in request.headers:
         raise NotImplementedError("multiple signature is not implanted.")
     new_request = request.copy()
-    body_string = request.body.encode(STRING_ENCODING)
-    if algorithm == 'SHA-256':
-        body_digest = hashlib.sha256(body_string).digest()
-    else:
-        raise NotImplementedError(f"sorry {algorithm} is not implemented")
+    body_byte_string = request.body.encode(STRING_ENCODING)
+    body_digest = get_hash(algorithm, body_byte_string)
     body_digest_header_value = {
         algorithm: body_digest.decode(STRING_ENCODING)
     }
     new_request.headers[DIGEST_HEADER_NAME] = http_sf.ser_dictionary(body_digest_header_value)
     return new_request
+
+
+def get_hash(algorithm: str, data: bytes) -> bytes:
+    if algorithm == 'SHA-256':
+        body_bytes_hash = hashlib.sha256(data).digest()
+        return body_bytes_hash
+    raise NotImplementedError(f"sorry {algorithm} is not implemented")
 
 
 def sign_request(

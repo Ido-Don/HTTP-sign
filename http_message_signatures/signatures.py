@@ -1,9 +1,12 @@
 import collections
 import datetime
+import hashlib
 import logging
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Type
 
+import http_sf
 import http_sfv
+from requests import PreparedRequest
 
 from .algorithms import HTTPSignatureAlgorithm, signature_algorithms
 from .exceptions import HTTPMessageSignaturesException, InvalidSignature
@@ -11,17 +14,103 @@ from .resolvers import HTTPSignatureComponentResolver, HTTPSignatureKeyResolver
 from .structures import VerifyResult
 
 logger = logging.getLogger(__name__)
+SIGNATURE_INPUT_HEADER_NAME = 'Signature-input'
+DEFAULT_SIGNATURE_PARAMETERS = {}
+STRING_ENCODING = 'UTF-8'
+SIGNATURE_HEADER_NAME = "Signature"
+DIGEST_HEADER_NAME = "Content-digest"
+signature_input_type = Dict[str, Tuple[List[Tuple[str, Dict[str, Any]]], Dict[str, Any]]]
+
+derived_component_names = {
+    "@method",
+    "@target-uri",
+    "@authority",
+    "@scheme",
+    "@request-target",
+    "@path",
+    "@query",
+    "@query-params",
+    "@status",
+    "@request-response",
+}
+
+
+def get_derived_header_from_request(request: PreparedRequest, header_name: str, header_parameters: Dict):
+    assert header_name in derived_component_names
+    if header_name == "@method":
+        return request.method
+    raise NotImplementedError(f"header {header_name} is not supported yet")
+
+
+def get_request_signature_base(request: PreparedRequest, headers_to_go_over: List[Tuple[str, Dict[str, Any]]]):
+    signature_base = ""
+    for header_name, header_parameters in headers_to_go_over:
+        if header_name in derived_component_names:
+            header_value = get_derived_header_from_request(request, header_name, header_parameters)
+        elif header_name in request.headers:
+            header_value = request.headers[header_name]
+        else:
+            raise ValueError(f"header {header_name} is not a header or a derived header")
+        signature_base += f"{header_name}: {header_value}\n"
+    signature_base += request.headers[SIGNATURE_INPUT_HEADER_NAME]
+    return signature_base
+
+
+def add_body_digest_to_request(request: PreparedRequest, algorithm: str):
+    if DIGEST_HEADER_NAME in request.headers:
+        raise NotImplementedError("multiple signature is not implanted.")
+    new_request = request.copy()
+    body_string = request.body.encode(STRING_ENCODING)
+    if algorithm == 'SHA-256':
+        body_digest = hashlib.sha256(body_string).digest()
+    else:
+        raise NotImplementedError(f"sorry {algorithm} is not implemented")
+    body_digest_header_value = {
+        algorithm: body_digest.decode(STRING_ENCODING)
+    }
+    new_request.headers[DIGEST_HEADER_NAME] = http_sf.ser_dictionary(body_digest_header_value)
+    return new_request
+
+
+def sign_request(
+        request: PreparedRequest,
+        headers: List[Tuple[str, Dict[str, Any]]],
+        algorithm: HTTPSignatureAlgorithm,
+        signature_params: Dict[str, Any] = None,
+        signature_label: str = "signature1"
+) -> PreparedRequest:
+    if signature_params is None:
+        signature_params = DEFAULT_SIGNATURE_PARAMETERS
+
+    new_request = request.copy()
+    if SIGNATURE_INPUT_HEADER_NAME in new_request.headers:
+        raise NotImplementedError("multiple signature is not implanted.")
+    signature_input = {
+        signature_label: (
+            headers,
+            signature_params
+        )
+    }
+    new_request.headers[SIGNATURE_INPUT_HEADER_NAME] = http_sf.ser_dictionary(signature_input)
+    signature_base = get_request_signature_base(new_request, headers)
+    bytes_signature_base = signature_base.encode(STRING_ENCODING)
+    signature = algorithm.sign(bytes_signature_base)
+    signature_header_value = {
+        signature_label: signature
+    }
+    new_request.headers[SIGNATURE_HEADER_NAME] = http_sf.ser_dictionary(signature_header_value)
+    return new_request
 
 
 class HTTPSignatureHandler:
     signature_metadata_parameters = {"alg", "created", "expires", "keyid", "nonce"}
 
     def __init__(
-        self,
-        *,
-        signature_algorithm: Type[HTTPSignatureAlgorithm],
-        key_resolver: HTTPSignatureKeyResolver,
-        component_resolver_class: type = HTTPSignatureComponentResolver,
+            self,
+            *,
+            signature_algorithm: Type[HTTPSignatureAlgorithm],
+            key_resolver: HTTPSignatureKeyResolver,
+            component_resolver_class: type = HTTPSignatureComponentResolver,
     ):
         if signature_algorithm not in signature_algorithms.values():
             raise HTTPMessageSignaturesException(f"Unknown signature algorithm {signature_algorithm}")
@@ -30,7 +119,7 @@ class HTTPSignatureHandler:
         self.component_resolver_class = component_resolver_class
 
     def _build_signature_base(
-        self, message, *, covered_component_ids: List[Any], signature_params: Dict[str, str]
+            self, message, *, covered_component_ids: List[Any], signature_params: Dict[str, str]
     ) -> Tuple:
         assert "@signature-params" not in covered_component_ids
         sig_elements = collections.OrderedDict()
@@ -72,16 +161,16 @@ class HTTPMessageSigner(HTTPSignatureHandler):
     DEFAULT_SIGNATURE_LABEL = "pyhms"
 
     def sign(
-        self,
-        message,
-        *,
-        key_id: str,
-        created: Optional[datetime.datetime] = None,
-        expires: Optional[datetime.datetime] = None,
-        nonce: Optional[str] = None,
-        label: Optional[str] = None,
-        include_alg: bool = True,
-        covered_component_ids: Sequence[str] = ("@method", "@authority", "@target-uri"),
+            self,
+            message,
+            *,
+            key_id: str,
+            created: Optional[datetime.datetime] = None,
+            expires: Optional[datetime.datetime] = None,
+            nonce: Optional[str] = None,
+            label: Optional[str] = None,
+            include_alg: bool = True,
+            covered_component_ids: Sequence[str] = ("@method", "@authority", "@target-uri"),
     ):
         # TODO: Accept-Signature autonegotiation
         key = self.key_resolver.resolve_private_key(key_id)
